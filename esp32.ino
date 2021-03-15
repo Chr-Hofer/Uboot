@@ -26,7 +26,6 @@ void setup() {
   
   ser.begin(2000000,SERIAL_8N1,16,17);
   tr_cam.begin(ser);
-  
 }
 
 void loop() {
