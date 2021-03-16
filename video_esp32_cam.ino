@@ -132,7 +132,8 @@ void sendPic(void * params){
         memcpy(&tr.packet.txBuff[1],imPtr,payloadSize);
         imPtr += payloadSize;
         tr.sendData(MAX_PACKET_SIZE);
-        delay(2);
+        uint32_t timer0x = micros();
+        while(micros()-timer0x < 1100-packetID*11);
       }
   
       tr.packet.txBuff[0] = numPackets;

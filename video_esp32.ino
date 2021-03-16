@@ -49,11 +49,13 @@ void processImages(){
           //
           
           if(tr.packet.rxBuff[0] != packetID){
+            /*
             Serial.println("Packet ID error: ");
             Serial.print("Expected: ");
             Serial.println(packetID);
             Serial.print("Got:      ");
             Serial.println(tr.packet.rxBuff[0]);
+            */
             return;  }
           memcpy(imgPtr,&tr.packet.rxBuff[1],payloadSize);
           imgPtr += payloadSize;
@@ -68,14 +70,17 @@ void processImages(){
         //
         
         if(tr.packet.rxBuff[0] != packetID){
+          /*
           Serial.println("Packet ID error: ");
           Serial.print("Expected: ");
           Serial.println(packetID);
           Serial.print("Got:      ");
           Serial.println(tr.packet.rxBuff[0]);
+          */
           return;}
         memcpy(imgPtr,&tr.packet.rxBuff[1],descriptor.lSize);
 
+        /*
         uint32_t timer0 = micros()-timer;
 
         Serial.println("Received image");
@@ -83,6 +88,7 @@ void processImages(){
         Serial.println(total/descriptor.packetAmount);
         Serial.print("Transmission took: ");
         Serial.println(timer0);
+        */
       }
     }
   }
