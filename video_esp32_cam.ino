@@ -1,7 +1,6 @@
-//----------------------------------------------------------
-//INIT
 #include "esp_camera.h"
 #include "SerialTransfer.h"
+
 #define CAM_PIN_PWDN 32
 #define CAM_PIN_RESET -1
 #define CAM_PIN_XCLK 0
@@ -45,26 +44,7 @@ static camera_config_t camera_config = {
     .fb_count = 1
 };
 
-static esp_err_t init_camera()
-{
-    //initialize the camera
-    esp_err_t err = esp_camera_init(&camera_config);
-    if (err != ESP_OK)
-    {
-        //TODO: IMPLEMENT ERROR PACKET TRANSMISSION
-        Serial.println("Camera Init Failed");
-        return err;
-    }
-
-    return ESP_OK;
-}
-
-//----------------------------------------------------------
-//CODE
 SerialTransfer tr;
-
-TaskHandle_t sendIm;
-TaskHandle_t getIm;
 
 uint8_t payloadSize = MAX_PACKET_SIZE - 1;
 
@@ -88,39 +68,51 @@ void setup() {
   
   init_camera();
   pic0 = esp_camera_fb_get();
-
-  xTaskCreatePinnedToCore(getPic,"get",8000,NULL,1,&getIm,0);
-  delay(100);
-  xTaskCreatePinnedToCore(sendPic,"send",8000,NULL,1,&sendIm,1);
+  
+  xTaskCreatePinnedToCore(sendPic,"send",64000,NULL,0,NULL,0);
 }
 
 void loop() {
-  delay(10000000);
+  getPic();
 }
 
-void getPic(void * params){
+void getPic(){
   while(true){
-    while(!newImage);
+    while(!newImage){
+      delay(1);
+    }
     newImage = false;
+    //Serial.println();
+    //Serial.print("Taking pic on ");
+    //Serial.println(xPortGetCoreID());
     if(mod){
+      //Serial.println("Writing to pic1");
       pic1 = esp_camera_fb_get();
       mod = false;
     }
-   else {
+    else {
+      //Serial.println("Writing to pic0");
       pic0 = esp_camera_fb_get();
       mod = true;
     }
+    //Serial.println();
   }
 }
 
 void sendPic(void * params){
   while(true){
+    uint32_t t = micros();
+    //Serial.print("Sending pic on ");
+    //Serial.print(xPortGetCoreID());
     newImage = true;
     camera_fb_t * pic;
-    if(mod)
-      pic = pic0;
-    else
-      pic = pic1;
+    if(mod){
+      //Serial.println("Reading pic0");
+      pic = pic0;}
+    else{
+      //Serial.println("Reading pic1");
+      pic = pic1;}
+    //Serial.println();
       
     if(pic){
       uint16_t picIndex = 0;
@@ -128,13 +120,12 @@ void sendPic(void * params){
       uint8_t * imPtr = pic->buf;
       uint8_t lastSize = picSize % payloadSize;
       uint8_t numPackets = picSize/payloadSize;
-      uint8_t sendSize = 0;
   
       descriptor.totalSize = picSize;
       descriptor.lSize = lastSize;
       descriptor.packetAmount = numPackets;
-      sendSize = tr.txObj(descriptor,sendSize);
-      tr.sendData(sendSize);
+      tr.txObj(descriptor,0);
+      tr.sendData(sizeof(descriptor));
   
       for(uint8_t packetID = 0; packetID < numPackets; packetID++){
         tr.packet.txBuff[0] = packetID;
@@ -147,8 +138,35 @@ void sendPic(void * params){
       tr.packet.txBuff[0] = numPackets;
       memcpy(&tr.packet.txBuff[1],imPtr,lastSize);
       tr.sendData(lastSize+1);
-      
+      Serial.println();
       esp_camera_fb_return(pic);
+
+      /*
+      Serial.println("Descriptor:");
+      Serial.print("Total Size: ");
+      Serial.println(descriptor.totalSize);
+      Serial.print("lSize:      ");
+      Serial.println(descriptor.lSize);
+      Serial.print("Packet #:   ");
+      Serial.println(descriptor.packetAmount);
+      Serial.println();
+      */
+  
+      //while(micros()-t < 1000000);
     }
   }
+}
+
+static esp_err_t init_camera()
+{
+    //initialize the camera
+    esp_err_t err = esp_camera_init(&camera_config);
+    if (err != ESP_OK)
+    {
+        //TODO: IMPLEMENT ERROR PACKET TRANSMISSION
+        //Serial.println("Camera Init Failed");
+        return err;
+    }
+
+    return ESP_OK;
 }
