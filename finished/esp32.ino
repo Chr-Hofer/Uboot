@@ -45,8 +45,6 @@ void setup() {
 }
 
 void loop() {
-  Serial.println("Images");
-  Serial.println(xPortGetCoreID());
   processImages(NULL);
 }
 
@@ -55,7 +53,6 @@ void processImages(void * params){
     receiveImages();
   }
 }
-
 
 void receiveImages(){
   while(true){
