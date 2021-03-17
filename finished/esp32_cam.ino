@@ -131,7 +131,7 @@ void sendPic(void * params){
         tr.sendData(MAX_PACKET_SIZE);
         
         uint32_t timer0x = micros();
-        while(micros()-timer0x < 450);
+        while(micros()-timer0x < 380);
       }
   
       tr.packet.txBuff[0] = numPackets;
