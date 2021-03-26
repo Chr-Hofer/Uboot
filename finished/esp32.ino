@@ -1,5 +1,13 @@
-#include <HardwareSerial.h>
+#include "HardwareSerial.h"
 #include "SerialTransfer.h"
+
+#define PIN_THRUST 4
+#define PIN_PITCH 5
+#define PIN_YAW 18
+#define PIN_PUMP 19
+#define PIN_MOTOR 21
+#define UART2_RX 16
+#define UART2_TX 17
 
 HardwareSerial ser(2);
 SerialTransfer tr_cam;
@@ -26,6 +34,7 @@ struct controls {
   uint8_t pitch;
   uint8_t yaw;
   uint8_t pump;
+  uint8_t motor;
 } ctrl;
 
 struct sensors {
@@ -38,7 +47,7 @@ void setup() {
   Serial.begin(115200);
   tr_ard.begin(Serial);
   
-  ser.begin(2000000,SERIAL_8N1,16,17);
+  ser.begin(2000000,SERIAL_8N1,UART2_RX,UART2_TX);
   tr_cam.begin(ser);
   
   //xTaskCreatePinnedToCore(processData,"proc",16384,NULL,0,NULL,0);
@@ -89,14 +98,15 @@ void receiveImages(){
           
           if(tr_cam.packet.rxBuff[0] != packetID){
             
-          
             Serial.println("Packet ID error: ");
             Serial.print("Expected: ");
             Serial.println(packetID);
             Serial.print("Got:      ");
             Serial.println(tr_cam.packet.rxBuff[0]);
           
-            return;  }
+            return;
+	  }
+
           memcpy(imgPtr,&tr_cam.packet.rxBuff[1],payloadSize);
           imgPtr += payloadSize;
           packetID++;
@@ -111,17 +121,17 @@ void receiveImages(){
         
         if(tr_cam.packet.rxBuff[0] != packetID){
           
-        
           Serial.println("Packet ID error: ");
           Serial.print("Expected: ");
           Serial.println(packetID);
           Serial.print("Got:      ");
           Serial.println(tr_cam.packet.rxBuff[0]);
         
-          return;}
+          return;
+        }
+
         memcpy(imgPtr,&tr_cam.packet.rxBuff[1],descriptor.lSize);
 
-      
         uint32_t timer0 = micros()-timer;
 
         Serial.print("Transmission took: ");
@@ -142,7 +152,7 @@ void processData(void * params){
   uint32_t timer;
   
   while(true){
-    while(!((digitalRead(4) == 1)));
+    while(!digitalRead(PIN_THRUST));
     timer = micros();
     getInputSignals();
 
@@ -150,24 +160,6 @@ void processData(void * params){
     tr_ard.sendData(sizeof(ctrl));
     if(tr_ard.available())
       tr_ard.rxObj(sens,0);
-
-  /*
-    Serial.print(ctrl.thrust);
-    Serial.print(" ,");
-    Serial.print(ctrl.pitch);
-    Serial.print(" ,");
-    Serial.print(ctrl.yaw);
-    Serial.print(" ,");
-    Serial.println(ctrl.pump);
-  */
-
-  /*
-    Serial.print(sens.pressure);
-    Serial.print(" ,");
-    Serial.print(sens.waterFront);
-    Serial.print(" ,");
-    Serial.println(sens.waterBack);
-  */
 
     delay(90);
     uint32_t t = micros();
@@ -180,33 +172,53 @@ void processData(void * params){
 void getInputSignals(){
   uint16_t timer0 = micros();
   uint8_t cnt = 0;
-  bool detected[4] = {false};
-  uint16_t times[4];
+  bool detected[5] = {false};
   
-  while(cnt != 4){
-    if(!(digitalRead(4)) and !(detected[0])){
+  while(cnt != 5){
+    if(!digitalRead(PIN_THRUST) and !detected[0]){
       cnt++;
       detected[0] = true;
       uint16_t tdiff = micros()-timer0;
       ctrl.thrust = map(tdiff,999,1985,0,180);
     }
-    if(!(digitalRead(5)) and !(detected[1])){
+    if(!digitalRead(PIN_PITCH) and !detected[1]){
       cnt++;
       detected[1] = true;
       uint16_t tdiff = micros()-timer0;
       ctrl.pitch = map(tdiff,999,2000,0,180);
     }
-    if(!(digitalRead(18)) and !(detected[2])){
+    if(!digitalRead(PIN_YAW) and !detected[2]){
       cnt++;
       detected[2] = true;
       uint16_t tdiff = micros()-timer0;
       ctrl.yaw = map(tdiff,999,2000,0,180);
     }
-    if(!(digitalRead(19)) and !(detected[3])){
+    if(!digitalRead(PIN_PUMP) and !detected[3]){
       cnt++;
       detected[3] = true;
       uint16_t tdiff = micros()-timer0;
       ctrl.pump = 1 - (tdiff < 1400) + (tdiff > 1600);
     }
+    if(!digitalRead(PIN_MOTOR) and !detected[4]){
+      cnt++;
+      detected[4] = true;
+      uint16_t tdiff = micros()-timer0;
+      ctrl.motor = 1 - (tdiff > 1600);
   }
+}
+
+void debug(){
+  Serial.print(ctrl.thrust);
+  Serial.print(" ,");
+  Serial.print(ctrl.pitch);
+  Serial.print(" ,");
+  Serial.print(ctrl.yaw);
+  Serial.print(" ,");
+  Serial.println(ctrl.pump);
+
+  Serial.print(sens.pressure);
+  Serial.print(" ,");
+  Serial.print(sens.waterFront);
+  Serial.print(" ,");
+  Serial.println(sens.waterBack);
 }
