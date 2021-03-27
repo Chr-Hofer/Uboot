@@ -1,12 +1,13 @@
 #include "Servo.h"
 #include "SerialTransfer.h"
 
-#define PIN_THRUST 5
-#define PIN_PITCH 9
-#define PIN_YAW 3
 #define PIN_WP A0
 #define PIN_WF A1
 #define PIN_WB A2
+#define PIN_MOTOR 8
+#define PIN_THRUST 9
+#define PIN_PITCH 10
+#define PIN_YAW 11
 #define PIN0_RELAIS 12
 #define PIN1_RELAIS 13
 
@@ -46,6 +47,7 @@ struct controls {
   uint8_t pitch = 90;
   uint8_t yaw = 90;
   uint8_t pump = 0;
+  uint8_t motor = 0;
 } ctrl;
 
 struct sensors {
@@ -76,7 +78,7 @@ void loop() {
   timer0 = micros();
 
   communicationHandler();
-  securityHandler();    
+  securityHandler();
   peripheralHandler();
   
   while(micros()-timer0 < 100000);
@@ -188,6 +190,7 @@ void peripheralHandler(){
     delay(5);
     digitalWrite(PIN1_RELAIS,(ctrl.pump == 1));
   }
+  digitalWrite(PIN_MOTOR,ctrl.motor);
 }
 
 void debug(){
