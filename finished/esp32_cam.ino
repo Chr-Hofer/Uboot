@@ -1,3 +1,5 @@
+//TODO: REWRITE CODE TO PULL SYSTEM
+
 #include "esp_camera.h"
 #include "SerialTransfer.h"
 
