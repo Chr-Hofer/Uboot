@@ -1,15 +1,34 @@
+//TODO: 
+// COUNTER FOR PUMP TIME
+// EXCEPTION FUNC
+
+/* EXCEPTION NUMS:
+ * 1: Possibly water detected
+ * 2: Water detected
+ * 3: Maximum depth reached
+ * 4: Communication problem
+ * 5: Timeout detected
+ * 6: Minimum battery voltage detected
+ */
+
 #include "Servo.h"
 #include "SerialTransfer.h"
 
 #define PIN_WP A0
 #define PIN_WF A1
 #define PIN_WB A2
+#define PIN_VOLT A3
 #define PIN_MOTOR 8
 #define PIN_THRUST 9
 #define PIN_PITCH 10
 #define PIN_YAW 11
 #define PIN0_RELAIS 12
 #define PIN1_RELAIS 13
+
+#define WPmax 1170
+#define WFmax 500
+#define WBmax 1600
+#define voltMin 2560
 
 Servo thrust;
 Servo yaw;
@@ -26,14 +45,18 @@ uint32_t startTime = millis();
 bool waterDetected = false;
 bool timeoutDetected = false;
 bool maxDepthReached = false;
+bool lowVoltDetected = false;
 bool messageSent = false;
 
 uint16_t sensWP_buff[4] = {105,105,105,105};
 uint16_t sensWF_buff[4] = {800,800,800,800};
 uint16_t sensWB_buff[4] = {0};
+uint16_t sensVOLT_buff[4] = {870,870,870,870};
 uint16_t movingAvgCounterWP = 420;
 uint16_t movingAvgCounterWF = 3200;
 uint16_t movingAvgCounterWB = 0;
+uint16_t movingAvgCounterVOLT = 3480;
+uint16_t batteryVoltage = 870;
 uint8_t buffIndex = 0;
 
 struct exception {
@@ -54,6 +77,7 @@ struct sensors {
   uint16_t pressure;
   uint16_t waterFront;
   uint16_t waterBack;
+  uint16_t batteryLevel;
 } sens;
 
 void setup() {
@@ -96,6 +120,8 @@ void communicationHandler(){
   sens.pressure = res/cnt;
   sens.waterFront = analogRead(PIN_WF);
   sens.waterBack = analogRead(PIN_WB);
+  sens.batteryLevel = batteryVoltage;
+  batteryVoltage = analogRead(PIN_VOLT);
 
   if(tr.available()){
     tr.rxObj(ctrl,0);
@@ -126,45 +152,56 @@ void securityHandler(){
   movingAvgCounterWP -= sensWP_buff[buffIndex];
   movingAvgCounterWF -= sensWF_buff[buffIndex];
   movingAvgCounterWB -= sensWB_buff[buffIndex];
+  movingAvgCounterVOLT -= sensVOLT_buff[buffIndex];
 
   sensWP_buff[buffIndex] = sens.pressure;
   sensWF_buff[buffIndex] = sens.waterFront;
   sensWB_buff[buffIndex] = sens.waterBack;
+  sensVOLT_buff[buffIndex] = sens.batteryLevel
 
   movingAvgCounterWP += sensWP_buff[buffIndex];
   movingAvgCounterWF += sensWF_buff[buffIndex];
   movingAvgCounterWB += sensWB_buff[buffIndex];
+  movingAvgCounterVOLT += sensVOLT_buff[buffIndex];
 
   buffIndex = ++buffIndex%4;
     
-  if(movingAvgCounterWF < 500 or movingAvgCounterWB > 1600){
-    if(waterDetected){
-      exception.exceptionNum = 2;
-      tr.txObj(exception,0);
-      tr.sendData(sizeof(exception));
-    }
-    else {
-      if(timer){
-        if(millis()-timer > 8000){
-          waterDetected = true;
-          timer = 0;
-        }
-      }
-      else {
-        exception.exceptionNum = 1;
+  if(movingAvgCounterWF < WFmax or movingAvgCounterWB > WBmax){
+    if(timer){
+      if(millis()-timer > 8000){
+        waterDetected = true;
+        timer = 0;
+        exception.exceptionNum = 2;
         tr.txObj(exception,0);
         tr.sendData(sizeof(exception));
-        timer = millis();
       }
+    }
+    else {
+      exception.exceptionNum = 1;
+      tr.txObj(exception,0);
+      tr.sendData(sizeof(exception));
+      timer = millis();
     }
   }
 
-  if(movingAvgCounterWP > 1170 and !messageSent){
+  if(movingAvgCounterWP > WPmax and !messageSent){
     messageSent = true;
     maxDepthReached = true;
     exception.exceptionNum = 3;
     tr.txObj(exception,0);
     tr.sendData(sizeof(exception));
+  }
+
+  if(movingAvgCounterVOLT < voltMin){
+    lowVoltDetected = true;
+    exception.exceptionNum = 6;
+    tr.txObj(exception,0);
+    tr.sendData(sizeof(exception));
+  }
+
+  uint16_t batteryRes = movingAvgCounterVOLT/4;
+  if(batteryRes < batteryVoltage){
+    batteryVoltage = batteryRes; 
   }
 }
 
