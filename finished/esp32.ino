@@ -1,5 +1,3 @@
-//TODO: REWRITE CODE TO PULL SYSTEM
-
 #include "HardwareSerial.h"
 #include "SerialTransfer.h"
 
@@ -43,6 +41,7 @@ struct sensors {
   uint16_t pressure = 100;
   uint16_t waterFront = 1000;
   uint16_t waterBack = 1000;
+  uint16_t batteryLevel = 870;
 } sens;
 
 void setup() {
