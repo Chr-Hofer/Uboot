@@ -1,15 +1,20 @@
 //TODO: 
-// COUNTER FOR PUMP TIME
-// EXCEPTION FUNC
+// COUNTER FOR PUMP TIME (TEST WHETHER WATER I/O RATE IS CONSTANT IN THE FIRST PLACE)
+// IMPLEMENT TEMPERATURE MEASUREMENT SYSTEM
+// EEPROM STAT TRACKING
+// CHANGE MOVING AVERAGE SYSTEM TO PRECALCULATE VALS AND SEND AS SENSOR DATA (NOT THE CURRENT MEASUREMENT)
 
-/* EXCEPTION NUMS:
- * 1: Possibly water detected
- * 2: Water detected
- * 3: Maximum depth reached
- * 4: Communication problem
- * 5: Timeout detected
- * 6: Minimum battery voltage detected
- */
+/* 
+ * EXCEPTION NUMS:
+ * 0: Possibly water detected
+ * 1: Water detected
+ * 2: Maximum depth reached
+ * 3: Communication problem
+ * 4: Timeout detected
+ * 5: Minimum battery voltage detected
+ * 6: Possibly temperature error
+ * 7: Temperature error
+*/
 
 #include "Servo.h"
 #include "SerialTransfer.h"
@@ -18,6 +23,10 @@
 #define PIN_WF A1
 #define PIN_WB A2
 #define PIN_VOLT A3
+#define PIN_TEMP A4
+
+#define PIN_SWITCH 6
+#define PIN_LED 7
 #define PIN_MOTOR 8
 #define PIN_THRUST 9
 #define PIN_PITCH 10
@@ -28,7 +37,12 @@
 #define WPmax 1170
 #define WFmax 500
 #define WBmax 1600
+#define WP_STOP 112
 #define voltMin 2560
+
+#define timeoutWater 10000
+#define timeoutCom 45000
+#define timeoutTemp 25000
 
 Servo thrust;
 Servo yaw;
@@ -48,6 +62,9 @@ bool maxDepthReached = false;
 bool lowVoltDetected = false;
 bool messageSent = false;
 
+uint16_t sensorTable[4][5] = {0};
+uint16_t movingAverages[5] = {0};
+
 uint16_t sensWP_buff[4] = {105,105,105,105};
 uint16_t sensWF_buff[4] = {800,800,800,800};
 uint16_t sensWB_buff[4] = {0};
@@ -58,6 +75,17 @@ uint16_t movingAvgCounterWB = 0;
 uint16_t movingAvgCounterVOLT = 3480;
 uint16_t batteryVoltage = 870;
 uint8_t buffIndex = 0;
+
+enum exceptions {
+  possibly_water_detected,
+  water_detected,
+  max_depth_reached,
+  com_problem,
+  timeout_detected,
+  min_volt_reached,
+  possibly_temp_error,
+  temp_error
+};
 
 struct exception {
   uint16_t start = 0xF0F0;
@@ -78,12 +106,19 @@ struct sensors {
   uint16_t waterFront;
   uint16_t waterBack;
   uint16_t batteryLevel;
+  uint16_t temp;
 } sens;
 
 void setup() {
   Serial.begin(115200);
   tr.begin(Serial);
-
+  
+  pinMode(PIN_SWITCH,OUTPUT);
+  pinMode(PIN_LED,OUTPUT);
+  pinMode(PIN_MOTOR,OUTPUT);
+  pinMode(PIN_THRUST,OUTPUT);
+  pinMode(PIN_PITCH,OUTPUT);
+  pinMode(PIN_YAW,OUTPUT);
   pinMode(PIN0_RELAIS,OUTPUT);
   pinMode(PIN1_RELAIS,OUTPUT);
 
@@ -94,6 +129,8 @@ void setup() {
   thrust.write(90);
   pitch.write(90);
   yaw.write(90);
+
+  initSensorTable();
   
   delay(1000);
 }
@@ -122,6 +159,7 @@ void communicationHandler(){
   sens.waterBack = analogRead(PIN_WB);
   sens.batteryLevel = batteryVoltage;
   batteryVoltage = analogRead(PIN_VOLT);
+  
 
   if(tr.available()){
     tr.rxObj(ctrl,0);
@@ -129,18 +167,14 @@ void communicationHandler(){
   }
   else {
     if(timeoutTimer){
-      if(millis()-timeoutTimer > 10000){
+      if(millis()-timeoutTimer > timeoutCom){
         timeoutDetected = true;
         timeoutTimer = 0;
-        exception.exceptionNum = 5;
-        tr.txObj(exception,0);
-        tr.sendData(sizeof(exception));
+        sendExc(timeout_detected);
       }
     }
     else {
-      exception.exceptionNum = 4;
-      tr.txObj(exception,0);
-      tr.sendData(sizeof(exception));
+      sendExc(com_problem);
       timeoutTimer = millis();
     }
   }
@@ -168,18 +202,14 @@ void securityHandler(){
     
   if(movingAvgCounterWF < WFmax or movingAvgCounterWB > WBmax){
     if(timer){
-      if(millis()-timer > 8000){
+      if(millis()-timer > timeoutWater){
         waterDetected = true;
         timer = 0;
-        exception.exceptionNum = 2;
-        tr.txObj(exception,0);
-        tr.sendData(sizeof(exception));
+        sendExc(water_detected);
       }
     }
     else {
-      exception.exceptionNum = 1;
-      tr.txObj(exception,0);
-      tr.sendData(sizeof(exception));
+      sendExc(possibly_water_detected);
       timer = millis();
     }
   }
@@ -187,16 +217,12 @@ void securityHandler(){
   if(movingAvgCounterWP > WPmax and !messageSent){
     messageSent = true;
     maxDepthReached = true;
-    exception.exceptionNum = 3;
-    tr.txObj(exception,0);
-    tr.sendData(sizeof(exception));
+    sendExc(max_depth_reached);
   }
 
   if(movingAvgCounterVOLT < voltMin){
     lowVoltDetected = true;
-    exception.exceptionNum = 6;
-    tr.txObj(exception,0);
-    tr.sendData(sizeof(exception));
+    sendExc(min_volt_reached);
   }
 
   uint16_t batteryRes = movingAvgCounterVOLT/4;
@@ -211,9 +237,9 @@ void peripheralHandler(){
   yaw.write(ctrl.yaw);
 
   if(maxDepthReached or waterDetected or timeoutDetected){
-    if(sens.pressure > 112){
+    if(sens.pressure > WP_STOP){
       digitalWrite(PIN0_RELAIS,HIGH);
-      delay(5);
+      delay(10);
       digitalWrite(PIN1_RELAIS,LOW);
     }
     else {
@@ -224,10 +250,25 @@ void peripheralHandler(){
   }
   else {
     digitalWrite(PIN0_RELAIS,(ctrl.pump > 1));
-    delay(5);
+    delay(10);
     digitalWrite(PIN1_RELAIS,(ctrl.pump == 1));
   }
   digitalWrite(PIN_MOTOR,ctrl.motor);
+}
+
+void sendExc(uint8_t num){
+  exception.exceptionNum = num;
+  tr.txObj(exception,0);
+  tr.sendData(sizeof(exception));
+}
+
+void initSensorTable(){
+  for(uint8_t sensor = 0; sensor < 5; sensor++);
+    for(uint8_t pos = 0; pos < 4; pos++){
+      sensorTable[sensor][pos] = analogRead(sensor);
+      movingAverages[sensor] += sensorTable[sensor][pos];
+      delay(10);
+    }
 }
 
 void debug(){
