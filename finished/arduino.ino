@@ -60,20 +60,14 @@ bool waterDetected = false;
 bool timeoutDetected = false;
 bool maxDepthReached = false;
 bool lowVoltDetected = false;
+
 bool messageSent = false;
+bool emergencySurfacing = false;
 
 uint16_t sensorTable[4][5] = {0};
 uint16_t movingAverages[5] = {0};
+uint16_t movingAverageCounters[5] = {0};
 
-uint16_t sensWP_buff[4] = {105,105,105,105};
-uint16_t sensWF_buff[4] = {800,800,800,800};
-uint16_t sensWB_buff[4] = {0};
-uint16_t sensVOLT_buff[4] = {870,870,870,870};
-uint16_t movingAvgCounterWP = 420;
-uint16_t movingAvgCounterWF = 3200;
-uint16_t movingAvgCounterWB = 0;
-uint16_t movingAvgCounterVOLT = 3480;
-uint16_t batteryVoltage = 870;
 uint8_t buffIndex = 0;
 
 enum exceptions {
@@ -106,7 +100,7 @@ struct sensors {
   uint16_t waterFront;
   uint16_t waterBack;
   uint16_t batteryLevel;
-  uint16_t temp;
+  uint16_t temperature;
 } sens;
 
 void setup() {
@@ -146,19 +140,7 @@ void loop() {
 }
 
 void communicationHandler(){
-  uint16_t res = 0;
-  uint8_t cnt = 0;
-
-  for(cnt = 0; cnt < 16; cnt++){
-    res += analogRead(PIN_WP);
-    delay(4);
-  }
-    
-  sens.pressure = res/cnt;
-  sens.waterFront = analogRead(PIN_WF);
-  sens.waterBack = analogRead(PIN_WB);
-  sens.batteryLevel = batteryVoltage;
-  batteryVoltage = analogRead(PIN_VOLT);
+  
   
 
   if(tr.available()){
@@ -183,23 +165,6 @@ void communicationHandler(){
 }
 
 void securityHandler(){
-  movingAvgCounterWP -= sensWP_buff[buffIndex];
-  movingAvgCounterWF -= sensWF_buff[buffIndex];
-  movingAvgCounterWB -= sensWB_buff[buffIndex];
-  movingAvgCounterVOLT -= sensVOLT_buff[buffIndex];
-
-  sensWP_buff[buffIndex] = sens.pressure;
-  sensWF_buff[buffIndex] = sens.waterFront;
-  sensWB_buff[buffIndex] = sens.waterBack;
-  sensVOLT_buff[buffIndex] = sens.batteryLevel
-
-  movingAvgCounterWP += sensWP_buff[buffIndex];
-  movingAvgCounterWF += sensWF_buff[buffIndex];
-  movingAvgCounterWB += sensWB_buff[buffIndex];
-  movingAvgCounterVOLT += sensVOLT_buff[buffIndex];
-
-  buffIndex = ++buffIndex%4;
-    
   if(movingAvgCounterWF < WFmax or movingAvgCounterWB > WBmax){
     if(timer){
       if(millis()-timer > timeoutWater){
@@ -232,26 +197,43 @@ void securityHandler(){
 }
 
 void peripheralHandler(){
+  for(uint8_t sensor = 0; sensor < 5; sensor++){
+    movingAverageCounters[sensor] -= sensorTable[sensor][buffIndex];
+    sensorTable[sensor][buffIndex] = analogRead(sensor);
+    movingAverageCounters[sensor] += sensorTable[sensor][buffIndex];
+    movingAverages[sensor] = movingAverageCounters[sensor]/5;
+  }
+  
+  buffIndex = ++buffIndex%4;
+    
+  sens.pressure = movingAverages[0];
+  sens.waterFront = movingAverages[1];
+  sens.waterBack = movingAverages[2];
+  sens.batteryLevel = movingAverages[3];
+  sens.temperature = movingAverages[4];
+  
   thrust.write(ctrl.thrust);
   pitch.write(ctrl.pitch);
   yaw.write(ctrl.yaw);
 
-  if(maxDepthReached or waterDetected or timeoutDetected){
-    if(sens.pressure > WP_STOP){
-      digitalWrite(PIN0_RELAIS,HIGH);
-      delay(10);
-      digitalWrite(PIN1_RELAIS,LOW);
-    }
-    else {
-      maxDepthReached = false;
-      waterDetected = false;
-      messageSent = false;
-    }
-  }
-  else {
+  if(normal){
     digitalWrite(PIN0_RELAIS,(ctrl.pump > 1));
     delay(10);
     digitalWrite(PIN1_RELAIS,(ctrl.pump == 1));
+  }
+  else {
+    if(maxDepthReached or waterDetected or timeoutDetected){
+      if(emergencySurfacing){
+        digitalWrite(PIN0_RELAIS,HIGH);
+        delay(10);
+        digitalWrite(PIN1_RELAIS,LOW);
+      }
+      else {
+        maxDepthReached = false;
+        waterDetected = false;
+        messageSent = false;
+      }
+    }
   }
   digitalWrite(PIN_MOTOR,ctrl.motor);
 }
@@ -266,7 +248,7 @@ void initSensorTable(){
   for(uint8_t sensor = 0; sensor < 5; sensor++);
     for(uint8_t pos = 0; pos < 4; pos++){
       sensorTable[sensor][pos] = analogRead(sensor);
-      movingAverages[sensor] += sensorTable[sensor][pos];
+      movingAverageCounters[sensor] += sensorTable[sensor][pos];
       delay(10);
     }
 }
