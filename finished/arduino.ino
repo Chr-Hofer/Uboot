@@ -1,6 +1,8 @@
 //TODO: 
 // COUNTER FOR PUMP TIME (TEST WHETHER WATER I/O RATE IS CONSTANT IN THE FIRST PLACE)
+// IMPLEMENT TEMPERATURE MEASUREMENT SYSTEM
 // EEPROM STAT TRACKING
+// CHANGE MOVING AVERAGE SYSTEM TO PRECALCULATE VALS AND SEND AS SENSOR DATA (NOT THE CURRENT MEASUREMENT)
 
 /* 
  * EXCEPTION NUMS:
@@ -17,11 +19,17 @@
 #include "Servo.h"
 #include "SerialTransfer.h"
 
-#define PIN_WP A0
-#define PIN_WF A1
-#define PIN_WB A2
-#define PIN_VOLT A3
-#define PIN_TEMP A4
+#define PRESSURE 0
+#define WATERF 1
+#define WATERB 2
+#define VOLTAGE 3
+#define TEMP 4
+
+#define PIN_WP 0
+#define PIN_WF 1
+#define PIN_WB 2
+#define PIN_VOLT 3
+#define PIN_TEMP 4
 
 #define PIN_SWITCH 6
 #define PIN_LED 7
@@ -138,9 +146,6 @@ void loop() {
 }
 
 void communicationHandler(){
-  
-  
-
   if(tr.available()){
     tr.rxObj(ctrl,0);
     timeoutTimer = 0;
@@ -204,11 +209,11 @@ void peripheralHandler(){
   
   buffIndex = ++buffIndex%4;
     
-  sens.pressure = movingAverages[0];
-  sens.waterFront = movingAverages[1];
-  sens.waterBack = movingAverages[2];
-  sens.batteryLevel = movingAverages[3];
-  sens.temperature = movingAverages[4];
+  sens.pressure = movingAverages[PRESSURE];
+  sens.waterFront = movingAverages[WATERF];
+  sens.waterBack = movingAverages[WATERB];
+  sens.batteryLevel = movingAverages[VOLTAGE];
+  sens.temperature = movingAverages[TEMP];
   
   thrust.write(ctrl.thrust);
   pitch.write(ctrl.pitch);
